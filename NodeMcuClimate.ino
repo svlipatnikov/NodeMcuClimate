@@ -583,7 +583,7 @@ void calcHeaterData(byte heaterMode)
         relay_heater_timer = currentCicleTime;
       }
       else if (tp_pump && !bat_valve_kit && !bat_valve_det && !bat_valve_bed) { // если включен только теплый пол (задержка не нужна т.к. она есть в tp_pump)
-        if ds_validity_flag
+        if (ds_validity_flag)
           relay_heater = Hysteresis(relay_heater, _ds_tpin.mid, TP_IN_MAX, delta_tp);  // гистерезис для отключения котла при превышении TP_IN_MAX (трехходовой клапан закрыт, котлу некуда качать)
         else {  //робасность
           if (seasonMode == SUMMER) relay_heater = false;
