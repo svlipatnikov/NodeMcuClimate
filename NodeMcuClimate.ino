@@ -148,6 +148,9 @@
  * v74 - 14/10/2020
  * добавлена проверка исправности данных от arduino nano  
  * изменены функции get_i2c_data
+ * 
+ * v75 - 06/11/2020
+ * Скооректирована функция calcHeaterData для отключения котла при отключенных батареях и превышении TP_IN_MAX (котлу некуда качать)
  */ 
 
 #include <Wire.h>
@@ -280,6 +283,7 @@ const int     TP_PUMP_DELAY = 120*1000;        // время задержки н
 const int     RELAY_HEATER_DELAY = 60*1000;    // время задержки на включение котла
 const int     ENERGY_SAVE_DELAY = 20*60*1000;  // время задержки перед включением режима energy_save
 const int     EMERGENCY_HEATER_TIME = 30*60*1000; // время подогрева по запросу
+const int     TP_IN_MAX = 36;                  // температура на входе коллектора ТП, выше которой котел отключается (при закрытых батареях и трехходовом клапане котлу некуда качать воду)          
 
 // переменные времени
 unsigned long Last_online_time;                // время когда модуль был онлайн
@@ -578,7 +582,15 @@ void calcHeaterData(byte heaterMode)
         relay_heater = false;             
         relay_heater_timer = currentCicleTime;
       }
-      else if ((currentCicleTime - relay_heater_timer) > RELAY_HEATER_DELAY)  // включаем котел не сразу
+      else if (tp_pump && !bat_valve_kit && !bat_valve_det && !bat_valve_bed) { // если включен только теплый пол (задержка не нужна т.к. она есть в tp_pump)
+        if ds_validity_flag
+          relay_heater = Hysteresis(relay_heater, _ds_tpin.mid, TP_IN_MAX, delta_tp);  // гистерезис для отключения котла при превышении TP_IN_MAX (трехходовой клапан закрыт, котлу некуда качать)
+        else {  //робасность
+          if (seasonMode == SUMMER) relay_heater = false;
+          if (seasonMode == WINTER) relay_heater = true; 
+        }
+      } 
+      else if ((currentCicleTime - relay_heater_timer) > RELAY_HEATER_DELAY) // елси включены батареи: задержка включения котла (ждем пока термоклапаны батарей сработают)
         relay_heater = true; 
       else
         relay_heater = false;   
@@ -615,8 +627,8 @@ void Bat_valve_state (bool state) {
 // функция получения данных по i2c
 byte last_i2c_in_isp;
 
-bool get_i2c_data() 
-{  
+bool get_i2c_data() {  
+  
   byte bite_counter = 0;          // число принятых бит
   byte i2c_in_data[26];           // массив для приема данных i2c
   byte data100, data10, data1, data; //
