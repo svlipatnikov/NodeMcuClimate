@@ -154,6 +154,9 @@
  * 
  * v76 - 19/11/2020
  * ветка теплого пола всегда включена
+ * ветки теплого пола остальных веток вычисляются синхронно 1 раз в 2 мин
+ * термоклапаны батарей вычисляются синхронно 1 раз в 2 мин
+ * добавлено вычисление признака morning_heater_flag
  */
 
 #include <Wire.h>
@@ -264,10 +267,7 @@ float delta_tv = 0.4; // гистрезис температуры воздух�
 float need_gvs_temp = 37.0;
 float delta_gvs_temp = 2.0; // гистрезис температуры ГВС
 float delta_humidity = 2.5; // гистерезис для включения вытяжки в ванной
-
-//переменные для хранения времени крайнего управления термоклапанами
-unsigned long change_tp_kit, change_tp_din, change_tp_det, change_tp_bed; // термоклапаны теплого пола
-unsigned long change_tv_din, change_tv_det, change_tv_bed;                // термоклапаны батарей
+float delta_heater = 5.0;   // гистерезис температуры на входе коллектора ТП
 
 // константы
 const int RESTART_PERIOD = 10 * 60 * 1000;        // минимально время до ребута, если не удается подключиться к wi-fi
@@ -281,7 +281,7 @@ const int TP_PUMP_DELAY = 120 * 1000;             // время задержки
 const int RELAY_HEATER_DELAY = 60 * 1000;         // время задержки на включение котла
 const int ENERGY_SAVE_DELAY = 20 * 60 * 1000;     // время задержки перед включением режима energy_save
 const int EMERGENCY_HEATER_TIME = 30 * 60 * 1000; // время подогрева по запросу
-const int TP_IN_MAX = 36;                         // температура на входе коллектора ТП, выше которой котел отключается (при закрытых батареях и трехходовом клапане котлу некуда качать воду)
+const int TP_IN_MAX = 35;                         // температура на входе коллектора ТП, выше которой котел отключается (при закрытых батареях и трехходовом клапане котлу некуда качать воду)
 
 // переменные времени
 unsigned long Last_online_time;       // время когда модуль был онлайн
@@ -294,19 +294,22 @@ unsigned long tp_pump_timer;          // таймер отключения на�
 unsigned long relay_heater_timer;     // таймер отключения котла
 unsigned long energySaveTime;         // время, начиная с которого выполняется условие energy_save_flag
 unsigned long notEmergencyHeaterTime; // время включения подогрева (время крайнего не включенного состояния)
+unsigned long last_change_tp_valve;   // термоклапаны теплого пола
+unsigned long last_change_bat_valve;  // термоклапаны батарей
 
 // прочие переменные
-byte main_cicle_counter;      // счетчик основного цикла
-bool energy_save_flag;        // флаг перевода всех термоклапанов ТП в нормальное состояние(напряжение отсутствует)
-bool emergencyHeater;         // флаг для подогрева всех ТП на 30 мин
-bool bath_high_humidity_flag; // Флаг большой влажности в ванной
-bool dht_validity_flag;       // флаг валидности данных от датчиков DHT
-bool ds_validity_flag;        // флаг валидности данных от датчиков DS18B20
-float dht_i2c_data[8];        // массив принимаемых данных по i2c от arduino: temp1 , hum1, temp2, hum2, temp3, hum3, temp4, hum4
-float mid_humidity = 100;     // средняя влажность в комнатах
-bool fan_ON;                  // вытяжка в ванной
-byte i2c_in_err = 100;        // счетчик ошибок данных от ардуино
-bool dht_arduino_flag = true; // исправность данных от ардуино
+byte main_cicle_counter;          // счетчик основного цикла
+bool energy_save_flag;            // флаг перевода всех термоклапанов ТП в нормальное состояние(напряжение отсутствует)
+bool emergencyHeater;             // флаг для подогрева всех ТП на 30 мин
+bool bath_high_humidity_flag;     // Флаг большой влажности в ванной
+bool dht_validity_flag;           // флаг валидности данных от датчиков DHT
+bool ds_validity_flag;            // флаг валидности данных от датчиков DS18B20
+float dht_i2c_data[8];            // массив принимаемых данных по i2c от arduino: temp1 , hum1, temp2, hum2, temp3, hum3, temp4, hum4
+float mid_humidity = 100;         // средняя влажность в комнатах
+bool fan_ON;                      // вытяжка в ванной
+byte i2c_in_err = 100;            // счетчик ошибок данных от ардуино
+bool dht_arduino_flag = true;     // исправность данных от ардуино
+bool morning_heater_flag = false; // признак необходимости подогрева утром
 
 // переменные включения/выключения основных функций
 #define OFF 0
@@ -379,8 +382,8 @@ void loop()
   // автоматическое включение вытяжки в ванной
   if (fanMode == ON)
     Send_UDP("b1");
-  if (fanMode == AUTO)
-  { // если включен режим автоматического управления вентилятором
+  if (fanMode == AUTO)   // если включен режим автоматического управления вентилятором
+  { 
     if ((_dht_bath.midH > HIGH_HUMIDITY) && (_dht_bath.midH - mid_humidity > 20))
       Send_UDP("b1");
   }
@@ -440,9 +443,11 @@ bool dhtDataOk(void)
 // вычисление признака высокой влажности
 bool bathHighHumidity(void)
 {
-  if (dhtDataOk() && (_dht_bath.midH > HIGH_HUMIDITY))
+  if (!dht_validity_flag) return false;
+    
+  if (_dht_bath.midH > HIGH_HUMIDITY)  
     return true;
-  else
+  else  
     return false;
 }
 
@@ -450,6 +455,8 @@ bool bathHighHumidity(void)
 // для экономии электричества, например, летом, когда отопление постоянно отключено
 bool energySave(void)
 {
+  if (!ds_validity_flag) return false;
+  
   bool needTemp;
   if ((_ds_kit.mid > need_tp_kit - delta_tp) &&
       (_ds_din.mid > need_tp_din - delta_tp) &&
@@ -471,49 +478,45 @@ bool energySave(void)
     return false;
 }
 
+// вычисление признака morning_heater_flag 
+// необходимость подогрева теплого пола утром
+bool morningHeater (void)
+{
+  byte heaterMinutes = 15; //время подогрева в минутах
+  if (ds_validity_flag) { 
+    heaterMinutes = 20 - _ds_weather.mid;
+    heaterMinutes = constrain (heaterMinutes, 0 ,59); // ограничиваем 0-59 мин
+    if (heaterMinutes) heaterMinutes = constrain (heaterMinutes, 10 ,59);  // елси не 0 то нижняя граница 10 мин
+  }
+  else { // робасность
+    if (seasonMode == SUMMER) heaterMinutes = 15;
+    if (seasonMode == WINTER) heaterMinutes = 30;
+  }
+
+  if (timeClient.getHours() == 6 && timeClient.getMinutes() < heaterMinutes)
+    return true;
+  else
+    return false;
+}
+  
+
 // вычисление данных для теплого пола
 void Calc_tp_data(void)
 {
-  if ((currentCicleTime - change_tp_kit > VALVE_CTRL_PERIOD))
-  {
-    change_tp_kit = currentCicleTime;
+  if ((currentCicleTime - last_change_tp_valve > VALVE_CTRL_PERIOD)) {
+    last_change_tp_valve = currentCicleTime;
+
+    if (seasonMode == WINTER && (tp_valve_kit || tp_valve_din || tp_valve_det || tp_valve_bed)) // если ЗИМОЙ хотя бы один термоклапан открыт
+      Tp_valve_state(true);  // открываем все остальные (те что не в петле гистерезиса закроются обратно)
+    
     tp_valve_kit = Hysteresis(tp_valve_kit, _ds_kit.mid, need_tp_kit, delta_tp);
-  }
-  if ((currentCicleTime - change_tp_din > VALVE_CTRL_PERIOD))
-  {
-    change_tp_din = currentCicleTime;
     tp_valve_din = Hysteresis(tp_valve_din, _ds_din.mid, need_tp_din, delta_tp);
-  }
-  if ((currentCicleTime - change_tp_det > VALVE_CTRL_PERIOD))
-  {
-    change_tp_det = currentCicleTime;
     tp_valve_det = Hysteresis(tp_valve_det, _ds_det.mid, need_tp_det, delta_tp);
-  }
-  if ((currentCicleTime - change_tp_bed > VALVE_CTRL_PERIOD))
-  {
-    change_tp_bed = currentCicleTime;
-    tp_valve_bed = Hysteresis(tp_valve_bed, _ds_bed.mid, need_tp_bed, delta_tp);
+    tp_valve_bed = Hysteresis(tp_valve_bed, _ds_bed.mid, need_tp_bed, delta_tp);    
   }
 
   // ветка теплого пола в ванной, туалете, коридоре
   tp_valve_bath = true; // всегда включена
-/*  
-  if (timeClient.getHours() >= 6 && timeClient.getHours() <= 21)
-  {                                               // днем
-    int hotPercent = (int)(20 - _ds_weather.mid); // получаем процент: сколько времени греть
-    if (hotPercent < 0)
-      hotPercent = 0;
-    int minPercent = (int)((timeClient.getMinutes() / 60) * 100); // получем процент минтут в часе
-    if (minPercent < hotPercent)
-      tp_valve_bath = true;
-    else
-      tp_valve_bath = false;
-  }
-  else if (timeClient.getHours() == 5 && timeClient.getMinutes() > 40) // чтобы с утра полы были теплые греем с 5:40 до 6:00
-    tp_valve_bath = true;
-  else // ночью
-    tp_valve_bath = false;
-    */
 }
 
 // насос теплого пола
@@ -550,19 +553,11 @@ void calcTpPump(byte tpMode)
 // батареи
 void Calc_bat_data(void)
 {
-  if ((currentCicleTime - change_tv_din > VALVE_CTRL_PERIOD))
-  {
-    change_tv_din = currentCicleTime;
+  if ((currentCicleTime - last_change_bat_valve > VALVE_CTRL_PERIOD))  {  
+    last_change_bat_valve = currentCicleTime;
+    
     bat_valve_kit = Hysteresis(bat_valve_kit, _dht_din.midT, need_tv_din, delta_tv);
-  }
-  if ((currentCicleTime - change_tv_det > VALVE_CTRL_PERIOD))
-  {
-    change_tv_det = currentCicleTime;
     bat_valve_det = Hysteresis(bat_valve_det, _dht_det.midT, need_tv_det, delta_tv);
-  }
-  if ((currentCicleTime - change_tv_bed > VALVE_CTRL_PERIOD))
-  {
-    change_tv_bed = currentCicleTime;
     bat_valve_bed = Hysteresis(bat_valve_bed, _dht_bed.midT, need_tv_bed, delta_tv);
   }
 }
@@ -602,7 +597,7 @@ void calcHeaterData(byte heaterMode)
     else if (tp_pump && !bat_valve_kit && !bat_valve_det && !bat_valve_bed)
     { // если включен только теплый пол (задержка не нужна т.к. она есть в tp_pump)
       if (ds_validity_flag)
-        relay_heater = Hysteresis(relay_heater, _ds_tpin.mid, TP_IN_MAX, delta_tp); // гистерезис для отключения котла при превышении TP_IN_MAX (трехходовой клапан закрыт, котлу некуда качать)
+        relay_heater = Hysteresis(relay_heater, _ds_tpin.mid, TP_IN_MAX, delta_heater); // гистерезис для отключения котла при превышении TP_IN_MAX (трехходовой клапан закрыт, котлу некуда качать)
       else
       { //робасность
         if (seasonMode == SUMMER) relay_heater = false;
@@ -977,16 +972,13 @@ void main_cicle(byte main_cicle_counter)
     ds_validity_flag = dsDataOk();
 
     // признак большой влажности в ванной
-    if (dht_validity_flag)
-      bath_high_humidity_flag = bathHighHumidity();
-    else //робасность
-      bath_high_humidity_flag = false;
+    bath_high_humidity_flag = bathHighHumidity();
 
     // признак режима экономии энергии
-    if (ds_validity_flag)
-      energy_save_flag = energySave();
-    else //робасность
-      energy_save_flag = false;
+    energy_save_flag = energySave();
+
+    // признак подогрева пола утром
+    morning_heater_flag = morningHeater();
 
     //вычисление emergencyHeater
     if (!emergencyHeater)

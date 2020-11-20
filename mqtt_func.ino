@@ -113,44 +113,37 @@ void mqtt_get(char* topic, byte* payload, unsigned int length) {
   if (strcmp(topic, topic_need_tv_din_ctrl) == 0) {
     need_tv_din = value;  
     MQTT_publish_float(topic_need_tv_din_state, need_tv_din);
-    change_tv_din = 0;      // обнуляем время, чтобы после ручных изменений система сразу отреагировала
-    Bat_valve_state(false); // обнуляем состояния термоклапанов (обнулется состояние гистерезисов) 
+    last_change_bat_valve = 0;    // обнуляем время, чтобы после ручных изменений система сразу отреагировала
   }
   else if (strcmp(topic, topic_need_tv_det_ctrl) == 0) {
     need_tv_det = value;  
     MQTT_publish_float(topic_need_tv_det_state, need_tv_det);
-    change_tv_det = 0;
-    Bat_valve_state(false);
+    last_change_bat_valve = 0;
   }
   else if (strcmp(topic, topic_need_tv_bed_ctrl) == 0) {
     need_tv_bed = value;
     MQTT_publish_float(topic_need_tv_bed_state, need_tv_bed);
-    change_tv_bed = 0;
-    Bat_valve_state(false);
+    last_change_bat_valve = 0;
   }
   else if (strcmp(topic, topic_need_tp_kit_ctrl) == 0) {
     need_tp_kit = value;
     MQTT_publish_float(topic_need_tp_kit_state, need_tp_kit);
-    change_tp_kit = 0;
-    Tp_valve_state(false);
+    last_change_tp_valve = 0;
   }
   else if (strcmp(topic, topic_need_tp_din_ctrl) == 0) {
     need_tp_din = value;
     MQTT_publish_float(topic_need_tp_din_state, need_tp_din);
-    change_tp_din = 0; 
-    Tp_valve_state(false);
+    last_change_tp_valve = 0; 
   }
   else if (strcmp(topic, topic_need_tp_det_ctrl) == 0) {
     need_tp_det = value;
     MQTT_publish_float(topic_need_tp_det_state, need_tp_det);
-    change_tp_det = 0;
-    Tp_valve_state(false);
+    last_change_tp_valve = 0;
   }
   else if (strcmp(topic, topic_need_tp_bed_ctrl) == 0) {
     need_tp_bed = value;
     MQTT_publish_float(topic_need_tp_bed_state, need_tp_bed);
-    change_tp_bed = 0;
-    Tp_valve_state(false);
+    last_change_tp_valve = 0;
   }
   else if (strcmp(topic, topic_need_t_gvs_ctrl) == 0) {
     need_gvs_temp = value; 
