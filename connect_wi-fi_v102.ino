@@ -55,6 +55,6 @@ void Restart (unsigned long Online_time, const int max_offline_time) {
     WiFi.disconnect();
     ESP.eraseConfig();
     delay(1000);
-    ESP.reset();
+    ESP.restart();
   }
 }
