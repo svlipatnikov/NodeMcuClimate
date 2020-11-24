@@ -484,13 +484,13 @@ bool morningHeater (void)
 {
   byte heaterMinutes = 15; //время подогрева в минутах
   if (ds_validity_flag) { 
-    heaterMinutes = 20 - _ds_weather.mid;
+    heaterMinutes = (byte)(30 - _ds_weather.mid * 2);
     heaterMinutes = constrain (heaterMinutes, 0 ,59); // ограничиваем 0-59 мин
-    if (heaterMinutes) heaterMinutes = constrain (heaterMinutes, 10 ,59);  // елси не 0 то нижняя граница 10 мин
+    if (heaterMinutes) heaterMinutes = constrain (heaterMinutes, 10 ,59);  // если не 0 то нижняя граница 10 мин
   }
   else { // робасность
     if (seasonMode == SUMMER) heaterMinutes = 15;
-    if (seasonMode == WINTER) heaterMinutes = 30;
+    if (seasonMode == WINTER) heaterMinutes = 40;
   }
 
   if (timeClient.getHours() == 6 && timeClient.getMinutes() < heaterMinutes)
@@ -988,6 +988,10 @@ void main_cicle(byte main_cicle_counter)
 
     // термоклапаны теплого пола и насос ТП
     if (emergencyHeater) {
+      Tp_valve_state(true);
+      calcTpPump(ON);
+    }
+    else if (morning_heater_flag) {
       Tp_valve_state(true);
       calcTpPump(ON);
     }
