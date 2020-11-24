@@ -281,7 +281,7 @@ const int TP_PUMP_DELAY = 120 * 1000;             // время задержки
 const int RELAY_HEATER_DELAY = 60 * 1000;         // время задержки на включение котла
 const int ENERGY_SAVE_DELAY = 20 * 60 * 1000;     // время задержки перед включением режима energy_save
 const int EMERGENCY_HEATER_TIME = 30 * 60 * 1000; // время подогрева по запросу
-const int TP_IN_MAX = 35;                         // температура на входе коллектора ТП, выше которой котел отключается (при закрытых батареях и трехходовом клапане котлу некуда качать воду)
+const int TP_IN_MAX = 37;                         // 37+5 = 42 температура на входе коллектора ТП, выше которой котел отключается (при закрытых батареях и трехходовом клапане котлу некуда качать воду)
 
 // переменные времени
 unsigned long Last_online_time;       // время когда модуль был онлайн
@@ -456,6 +456,7 @@ bool bathHighHumidity(void)
 bool energySave(void)
 {
   if (!ds_validity_flag) return false;
+  if (seasonMode == WINTER) return false;
   
   bool needTemp;
   if ((_ds_kit.mid > need_tp_kit - delta_tp) &&
@@ -468,15 +469,14 @@ bool energySave(void)
     needTemp = false;
   }
 
-  if (currentCicleTime < ENERGY_SAVE_DELAY) {  // если только что влючились (или после ребута)
-    if (seasonMode == SUMMER) return true;
-    if (seasonMode == WINTER) return false;
-  }
+  if ((seasonMode == SUMMER) && (currentCicleTime < ENERGY_SAVE_DELAY))   // если только что влючились (или после ребута)
+    return true;
   else if (needTemp && (currentCicleTime - energySaveTime > ENERGY_SAVE_DELAY)) //если в течение ENERGY_SAVE_DELAY выполняется условие energy_save_flag
     return true;  
   else
     return false;
 }
+
 
 // вычисление признака morning_heater_flag 
 // необходимость подогрева теплого пола утром
