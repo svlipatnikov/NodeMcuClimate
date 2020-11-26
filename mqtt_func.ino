@@ -230,11 +230,11 @@ void Send_MQTT_data(void)
   MQTT_publish_int(topic_boiler, relay_boiler);
   
   // флаги
+  MQTT_publish_int(topic_bath_high_humidity, bath_high_humidity_flag);
   MQTT_publish_int(topic_energy_save, energy_save_flag);
   MQTT_publish_int(topic_dht_validity, dht_validity_flag);
-  MQTT_publish_int(topic_ds_validity, ds_validity_flag);
-  MQTT_publish_int(topic_bath_high_humidity, bath_high_humidity_flag);
-  MQTT_publish_int(topic_arduino_validity, dht_arduino_flag);  
+  MQTT_publish_int(topic_ds_validity, ds_validity_flag);  
+  MQTT_publish_int(topic_arduino_validity, arduino_validity_flag);  
   
   // Func Mode
   MQTT_publish_int(topic_heaterMode_state, heaterMode);

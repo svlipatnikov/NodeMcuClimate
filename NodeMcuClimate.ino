@@ -308,7 +308,7 @@ float dht_i2c_data[8];            // массив принимаемых дан�
 float mid_humidity = 100;         // средняя влажность в комнатах
 bool fan_ON;                      // вытяжка в ванной
 byte i2c_in_err = 100;            // счетчик ошибок данных от ардуино
-bool dht_arduino_flag = true;     // исправность данных от ардуино
+bool arduino_validity_flag = true;     // исправность данных от ардуино
 bool morning_heater_flag = false; // признак необходимости подогрева утром
 
 // переменные включения/выключения основных функций
@@ -807,6 +807,37 @@ void Monitoring(void)
   }
 }
 
+// функции добавления данных DS и DHT к строке
+void addDsData (String str, byte paramNum, ds_sensor ds) {
+  char float_data[4];
+  if (ds.err < 5) {
+    sprintf(float_data, "&p%u=%2.1f", paramNum, ds.mid);
+    str += (String)float_data;
+  }
+}
+
+void addDhtTemp (String str, byte paramNum, dht_sensor dht) {
+  char float_data[4];
+  if (dht.err < 5) {
+    sprintf(float_data, "&p%u=%2.1f", paramNum, dht.midT);
+    str += (String)float_data;
+  }
+}
+
+void addDhtHum (String str, byte paramNum, dht_sensor dht) {
+  char float_data[4];
+  if (dht.err < 5) {
+    sprintf(float_data, "&p%u=%2.1f", paramNum, dht.midH);
+    str += (String)float_data;
+  }
+}
+
+void addBoolData (String str, byte paramNum, bool data) {
+  char bool_data[4];
+  sprintf(bool_data, "&p%u=%d", paramNum, data);
+  str += (String)bool_data;
+}
+
 // функция отправки данных на сервер open-monitoring.online
 void Monitoring_data_send(void)
 {
@@ -819,101 +850,41 @@ void Monitoring_data_send(void)
   // строка для отправки GET запросом
   String url = "/get?cid=" + (String)streamId + "&key=" + (String)privateKey;
 
-  char float_data[4];
-  if (_ds_kit.err < 5)
-  {
-    sprintf(float_data, "&p1=%2.1f", _ds_kit.mid);
-    url += (String)float_data;
-  }
-  if (_ds_din.err < 5)
-  {
-    sprintf(float_data, "&p2=%2.1f", _ds_din.mid);
-    url += (String)float_data;
-  }
-  if (_ds_det.err < 5)
-  {
-    sprintf(float_data, "&p3=%2.1f", _ds_det.mid);
-    url += (String)float_data;
-  }
-  if (_ds_bed.err < 5)
-  {
-    sprintf(float_data, "&p4=%2.1f", _ds_bed.mid);
-    url += (String)float_data;
-  }
-  if (_ds_tpin.err < 5)
-  {
-    sprintf(float_data, "&p5=%2.1f", _ds_tpin.mid);
-    url += (String)float_data;
-  }
-  if (_ds_gvs.err < 5)
-  {
-    sprintf(float_data, "&p6=%2.1f", _ds_gvs.mid);
-    url += (String)float_data;
-  }
-  if (_ds_weather.err < 5)
-  {
-    sprintf(float_data, "&p7=%2.1f", _ds_weather.mid);
-    url += (String)float_data;
-  }
+  addDsData(url, 1, _ds_kit);
+  addDsData(url, 2, _ds_din);
+  addDsData(url, 3, _ds_det);
+  addDsData(url, 4, _ds_bed);
+  addDsData(url, 5, _ds_tpin);
+  addDsData(url, 6, _ds_gvs);
+  addDsData(url, 7, _ds_weather);
+  
+  addDhtTemp(url, 8, _dht_din);
+  addDhtTemp(url, 9, _dht_det);
+  addDhtTemp(url, 10, _dht_bed);
+  addDhtTemp(url, 11, _dht_bath);
 
-  if (_dht_din.err < 5)
-  {
-    sprintf(float_data, "&p8=%2.1f", _dht_din.midT);
-    url += (String)float_data;
-  }
-  if (_dht_det.err < 5)
-  {
-    sprintf(float_data, "&p9=%2.1f", _dht_det.midT);
-    url += (String)float_data;
-  }
-  if (_dht_bed.err < 5)
-  {
-    sprintf(float_data, "&p10=%2.1f", _dht_bed.midT);
-    url += (String)float_data;
-  }
-  if (_dht_bath.err < 5)
-  {
-    sprintf(float_data, "&p11=%2.1f", _dht_bath.midT);
-    url += (String)float_data;
-  }
-  if (_dht_din.err < 5)
-  {
-    sprintf(float_data, "&p12=%2.1f", _dht_din.midH);
-    url += (String)float_data;
-  }
-  if (_dht_det.err < 5)
-  {
-    sprintf(float_data, "&p13=%2.1f", _dht_det.midH);
-    url += (String)float_data;
-  }
-  if (_dht_bed.err < 5)
-  {
-    sprintf(float_data, "&p14=%2.1f", _dht_bed.midH);
-    url += (String)float_data;
-  }
-  if (_dht_bath.err < 5)
-  {
-    sprintf(float_data, "&p15=%2.1f", _dht_bath.midH);
-    url += (String)float_data;
-  }
+  addDhtHum(url, 12, _dht_din);
+  addDhtHum(url, 13, _dht_det);
+  addDhtHum(url, 14, _dht_bed);
+  addDhtHum(url, 15, _dht_bath);
 
-  char send_data[200];
-  sprintf(send_data, "&p16=%d&p17=%d&p18=%d&p19=%d&p20=%d&p21=%d&p22=%d&p23=%d&p24=%d&p25=%d&p26=%d&p27=%d",
-          tp_valve_kit,
-          tp_valve_din,
-          tp_valve_det,
-          tp_valve_bed,
-          tp_valve_bath,
-          bat_valve_kit,
-          bat_valve_det,
-          bat_valve_bed,
-          tp_pump,
-          gvs_pump,
-          relay_heater,
-          emergencyHeater);
+  addBoolData(url, 16, tp_valve_kit);
+  addBoolData(url, 17, tp_valve_din);
+  addBoolData(url, 18, tp_valve_det);
+  addBoolData(url, 19, tp_valve_bed);
+  addBoolData(url, 20, tp_valve_bath);
+  addBoolData(url, 21, bat_valve_kit);
+  addBoolData(url, 22, bat_valve_det);
+  addBoolData(url, 23, bat_valve_bed);
+  addBoolData(url, 24, tp_pump);
+  addBoolData(url, 25, gvs_pump);
+  addBoolData(url, 26, relay_heater);
 
-  url += (String)send_data;
-
+  addBoolData(url, 27, emergencyHeater);
+  addBoolData(url, 28, dht_validity_flag);
+  addBoolData(url, 29, ds_validity_flag);
+  addBoolData(url, 30, arduino_validity_flag);
+  
   // This will send the request to the server
   client.print(String("GET ") + url + " HTTP/1.1\r\n" +
                "Host: " + host + "\r\n" +
@@ -946,7 +917,7 @@ void main_cicle(byte main_cicle_counter)
     }
     else if (i2c_in_err < 255)
       i2c_in_err++;
-    i2c_in_err < 10 ? dht_arduino_flag = true : dht_arduino_flag = false;
+    i2c_in_err < 10 ? arduino_validity_flag = true : arduino_validity_flag = false;
     break;
 
   case 1: // Чтение с датчиков DS18B20
