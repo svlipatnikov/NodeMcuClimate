@@ -207,12 +207,6 @@ char Buffer[UDP_TX_PACKET_MAX_SIZE];
 #include <NTPClient.h>
 NTPClient timeClient(Udp, "europe.pool.ntp.org"); //смещение на UTC+4
 
-#include <string.h>
-const char *host = "open-monitoring.online"; // Адрес сервера
-const char *streamId = "938";                // ID                         (!)
-const char *privateKey = "dXI0fy";           // Код доступа                (!)
-const int SEND_PERIOD = 70 * 1000;           // Периодичность отправки пакетов на сервер >60сек
-unsigned long last_send_time;
 const byte count = 6;
 
 struct dht_sensor
@@ -308,8 +302,9 @@ float dht_i2c_data[8];            // массив принимаемых дан�
 float mid_humidity = 100;         // средняя влажность в комнатах
 bool fan_ON;                      // вытяжка в ванной
 byte i2c_in_err = 100;            // счетчик ошибок данных от ардуино
-bool arduino_validity_flag = true;     // исправность данных от ардуино
+bool arduino_validity_flag = true;// исправность данных от ардуино
 bool morning_heater_flag = false; // признак необходимости подогрева утром
+bool tpValveOpenFlag = false;     // открытия всех клапанов 
 
 // переменные включения/выключения основных функций
 #define OFF 0
@@ -469,7 +464,7 @@ bool energySave(void)
     needTemp = false;
   }
 
-  if ((seasonMode == SUMMER) && (currentCicleTime < ENERGY_SAVE_DELAY))   // если только что влючились (или после ребута)
+  if (currentCicleTime < ENERGY_SAVE_DELAY)   // если только что влючились (или после ребута)
     return true;
   else if (needTemp && (currentCicleTime - energySaveTime > ENERGY_SAVE_DELAY)) //если в течение ENERGY_SAVE_DELAY выполняется условие energy_save_flag
     return true;  
@@ -484,7 +479,7 @@ bool morningHeater (void)
 {
   byte heaterMinutes = 15; //время подогрева в минутах
   if (ds_validity_flag) { 
-    heaterMinutes = (byte)(30 - _ds_weather.mid * 2);
+    heaterMinutes = (byte)(30 - _ds_weather.mid * 2); // зависимость времени подогрева от температуры на улице
     heaterMinutes = constrain (heaterMinutes, 0 ,59); // ограничиваем 0-59 мин
     if (heaterMinutes) heaterMinutes = constrain (heaterMinutes, 10 ,59);  // если не 0 то нижняя граница 10 мин
   }
@@ -493,7 +488,7 @@ bool morningHeater (void)
     if (seasonMode == WINTER) heaterMinutes = 40;
   }
 
-  if (timeClient.getHours() == 6 && timeClient.getMinutes() < heaterMinutes)
+  if (timeClient.getHours() == 6 && timeClient.getMinutes() <= heaterMinutes)
     return true;
   else
     return false;
@@ -506,8 +501,14 @@ void Calc_tp_data(void)
   if ((currentCicleTime - last_change_tp_valve > VALVE_CTRL_PERIOD)) {
     last_change_tp_valve = currentCicleTime;
 
-    if (seasonMode == WINTER && (tp_valve_kit || tp_valve_din || tp_valve_det || tp_valve_bed)) // если ЗИМОЙ хотя бы один термоклапан открыт
-      Tp_valve_state(true);  // открываем все остальные (те что не в петле гистерезиса закроются обратно)
+    if (seasonMode == WINTER && (tp_valve_kit || tp_valve_din || tp_valve_det || tp_valve_bed)) { // если ЗИМОЙ хотя бы один термоклапан открыт
+      if (!tpValveOpenFlag) {
+        Tp_valve_state(true);  // открываем все остальные (те что не в петле гистерезиса закроются обратно)
+        tpValveOpenFlag = true;
+      }
+    }
+    else
+      tpValveOpenFlag = false; // сбрасываем флаг только когда все закрыты
     
     tp_valve_kit = Hysteresis(tp_valve_kit, _ds_kit.mid, need_tp_kit, delta_tp);
     tp_valve_din = Hysteresis(tp_valve_din, _ds_din.mid, need_tp_din, delta_tp);
@@ -642,71 +643,6 @@ void Bat_valve_state(bool state)
 }
 
 //=======================================================================================================
-// функция получения данных по i2c
-byte last_i2c_in_isp;
-
-bool get_i2c_data()
-{
-
-  byte bite_counter = 0;             // число принятых бит
-  byte i2c_in_data[26];              // массив для приема данных i2c
-  byte data100, data10, data1, data; //
-
-  Wire.requestFrom(8, 26); // запрос данных с 8 адреса, размер 26 символов (по 3 символа на температуру и влажность, х3 датчика, +2 символа исправности )
-  while (Wire.available())
-  {
-    byte x = Wire.read() - '0';
-    i2c_in_data[bite_counter] = x;
-    bite_counter++;
-  }
-
-  if (bite_counter == 26)
-  {
-    for (byte num = 0; num < 8; num++)
-    {
-      dht_i2c_data[num] = ((float)i2c_in_data[num * 3] * 10) + ((float)i2c_in_data[(num * 3) + 1] * 1) + ((float)i2c_in_data[(num * 3) + 2] / 10);
-      if (dht_i2c_data[num] == 0)
-        dht_i2c_data[num] = NAN;
-    }
-    byte i2c_in_isp = (i2c_in_data[24] * 10) + i2c_in_data[25];
-    if (i2c_in_isp != last_i2c_in_isp)
-      return true;
-    else
-      return false;
-    last_i2c_in_isp = i2c_in_isp;
-  }
-  else
-    return false;
-}
-
-//=======================================================================================================
-// Функция передачи данных по i2c
-int i2c_out_isp;
-
-void send_i2c_data(bool tp1, bool tp2, bool tp3, bool tp4, bool tp5,
-                   bool bat1, bool bat2, bool bat3,
-                   bool heater, bool boiler,
-                   bool pump_tp, bool pump_gvs)
-{
-  i2c_out_isp++;
-  i2c_out_isp %= 100; //инкремент исправности
-  char Text[14];
-  tp1 = !tp1;
-  tp2 = !tp2;
-  tp3 = !tp3;
-  tp4 = !tp4;
-  tp5 = !tp5;       //инверсия сигналов на термоклапаны ТП (нормально открытые)
-  heater = !heater; //управление отключением котла   (по умолчанию включен)
-  boiler = !boiler; //управление отключением бойлера (по умолчанию включен)
-  pump_gvs = !pump_gvs;
-  pump_tp = !pump_tp; //инверсия сигналов управления насосами (управляются низким уровнем)
-  sprintf(Text, "%u%u%u%u%u%u%u%u%u%u%u%u%2.0u", tp1, tp2, tp3, tp4, tp5, bat1, bat2, bat3, heater, boiler, pump_tp, pump_gvs, i2c_out_isp);
-  Wire.beginTransmission(8);
-  Wire.write(Text);
-  Wire.endTransmission();
-}
-
-//=======================================================================================================
 // функция вычисления данных датчиков DHT22
 dht_sensor Read_DHT(float temp, float hum, dht_sensor dht)
 {
@@ -763,6 +699,7 @@ ds_sensor Read_DS18B20(DeviceAddress DS_adress, ds_sensor ds, byte DS_pin)
   return ds;
 }
 
+
 //=======================================================================================================
 // функция вычисления среднего значния массива из 5 чисел
 float Calc_MID(float data[count])
@@ -778,127 +715,7 @@ float Calc_MID(float data[count])
   return mid;
 }
 
-//=======================================================================================================
-// функции UDP
 
-unsigned long Last_UDP_send_time; // время крайней отправки по udp
-const int UDP_SEND_PERIOD = 3000; // частота отправки пакетов UDP
-
-// функция отправки по UDP
-void Send_UDP(char data[UDP_TX_PACKET_MAX_SIZE])
-{
-  if (currentCicleTime - Last_UDP_send_time > UDP_SEND_PERIOD)
-  {
-    Last_UDP_send_time = currentCicleTime;
-    Udp.beginPacket(IP_Fan_controller, 8888);
-    Udp.write(data);
-    Udp.endPacket();
-  }
-}
-
-//=======================================================================================================
-// функции отправки данных на сервер мониторинга
-void Monitoring(void)
-{
-  if (currentCicleTime - last_send_time > SEND_PERIOD)
-  {
-    last_send_time = currentCicleTime;
-    Monitoring_data_send(); // Отправка данных на сервер
-  }
-}
-
-// функции добавления данных DS и DHT к строке
-void addDsData (String str, byte paramNum, ds_sensor ds) {
-  char float_data[4];
-  if (ds.err < 5) {
-    sprintf(float_data, "&p%u=%2.1f", paramNum, ds.mid);
-    str += (String)float_data;
-  }
-}
-
-void addDhtTemp (String str, byte paramNum, dht_sensor dht) {
-  char float_data[4];
-  if (dht.err < 5) {
-    sprintf(float_data, "&p%u=%2.1f", paramNum, dht.midT);
-    str += (String)float_data;
-  }
-}
-
-void addDhtHum (String str, byte paramNum, dht_sensor dht) {
-  char float_data[4];
-  if (dht.err < 5) {
-    sprintf(float_data, "&p%u=%2.1f", paramNum, dht.midH);
-    str += (String)float_data;
-  }
-}
-
-void addBoolData (String str, byte paramNum, bool data) {
-  char bool_data[4];
-  sprintf(bool_data, "&p%u=%d", paramNum, data);
-  str += (String)bool_data;
-}
-
-// функция отправки данных на сервер open-monitoring.online
-void Monitoring_data_send(void)
-{
-  // Use WiFiClient class to create TCP connections
-  WiFiClient client;
-  const int httpPort = 80;
-  if (!client.connect(host, httpPort))
-    return;
-
-  // строка для отправки GET запросом
-  String url = "/get?cid=" + (String)streamId + "&key=" + (String)privateKey;
-
-  addDsData(url, 1, _ds_kit);
-  addDsData(url, 2, _ds_din);
-  addDsData(url, 3, _ds_det);
-  addDsData(url, 4, _ds_bed);
-  addDsData(url, 5, _ds_tpin);
-  addDsData(url, 6, _ds_gvs);
-  addDsData(url, 7, _ds_weather);
-  
-  addDhtTemp(url, 8, _dht_din);
-  addDhtTemp(url, 9, _dht_det);
-  addDhtTemp(url, 10, _dht_bed);
-  addDhtTemp(url, 11, _dht_bath);
-
-  addDhtHum(url, 12, _dht_din);
-  addDhtHum(url, 13, _dht_det);
-  addDhtHum(url, 14, _dht_bed);
-  addDhtHum(url, 15, _dht_bath);
-
-  addBoolData(url, 16, tp_valve_kit);
-  addBoolData(url, 17, tp_valve_din);
-  addBoolData(url, 18, tp_valve_det);
-  addBoolData(url, 19, tp_valve_bed);
-  addBoolData(url, 20, tp_valve_bath);
-  addBoolData(url, 21, bat_valve_kit);
-  addBoolData(url, 22, bat_valve_det);
-  addBoolData(url, 23, bat_valve_bed);
-  addBoolData(url, 24, tp_pump);
-  addBoolData(url, 25, gvs_pump);
-  addBoolData(url, 26, relay_heater);
-
-  addBoolData(url, 27, emergencyHeater);
-  addBoolData(url, 28, dht_validity_flag);
-  addBoolData(url, 29, ds_validity_flag);
-  addBoolData(url, 30, arduino_validity_flag);
-  
-  // This will send the request to the server
-  client.print(String("GET ") + url + " HTTP/1.1\r\n" +
-               "Host: " + host + "\r\n" +
-               "Connection: close\r\n\r\n");
-  unsigned long timeout = currentCicleTime;
-  while (client.available() == 0)
-  {
-    if ((long)millis() - timeout > 5000)
-    {
-      client.stop();
-      return;
-    }
-  }
-}
 
 //=======================================================================================================
 // основной цикл
