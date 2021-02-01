@@ -3,8 +3,7 @@
 byte last_i2c_in_isp;
 
 bool get_i2c_data()
-{
-
+{  
   byte bite_counter = 0;             // число принятых бит
   byte i2c_in_data[26];              // массив для приема данных i2c
   byte data100, data10, data1, data; //
@@ -16,6 +15,10 @@ bool get_i2c_data()
     i2c_in_data[bite_counter] = x;
     bite_counter++;
   }
+
+  Serial.print("Принято ");
+  Serial.print(bite_counter);
+  Serial.println(" байт");
 
   if (bite_counter == 26)
   {
@@ -61,4 +64,6 @@ void send_i2c_data(bool tp1, bool tp2, bool tp3, bool tp4, bool tp5,
   Wire.beginTransmission(8);
   Wire.write(Text);
   Wire.endTransmission();
+
+  Serial.println(Text);
 }

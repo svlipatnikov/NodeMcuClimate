@@ -366,6 +366,9 @@ void setup()
   tp_pump = false;
   relay_heater = false;
   emergencyHeater = false;
+
+  Serial.begin(9600);
+  Serial.println("NodeMCU has been started");
 }
 
 //==========================================================================================================
@@ -729,10 +732,12 @@ float Calc_MID(float data[count])
 //=======================================================================================================
 // основной цикл
 void main_cicle(byte main_cicle_counter)
-{
+{  
+  Serial.println();
   switch (main_cicle_counter)
   {
   case 0: // Получение по i2c данных из ARDUINO NANO от датчиков DHT22
+    Serial.println("get_i2c_data: ");
     if (get_i2c_data())
     {
       _dht_din = Read_DHT(dht_i2c_data[0], dht_i2c_data[1], _dht_din);
@@ -744,9 +749,11 @@ void main_cicle(byte main_cicle_counter)
     else if (i2c_in_err < 255)
       i2c_in_err++;
     i2c_in_err < 10 ? arduino_validity_flag = true : arduino_validity_flag = false;
+    Serial.print("i2c_in_err = "); Serial.println(i2c_in_err);
     break;
 
   case 1: // Чтение с датчиков DS18B20
+    Serial.println("Read DS18B20: ");
     DS.requestTemperatures();
     _ds_kit = Read_DS18B20(ds_kit, _ds_kit, 1);
     _ds_din = Read_DS18B20(ds_din, _ds_din, 1);
@@ -759,6 +766,7 @@ void main_cicle(byte main_cicle_counter)
     break;
 
   case 2: // Вычисления
+    Serial.println("Calculate: ");
     // получение времени от NTP сервера
     timeClient.update();
 
@@ -830,8 +838,10 @@ void main_cicle(byte main_cicle_counter)
         Bat_valve_state(true);
     }
 
-    // котел - вычисляем всегда на основании расчитанных данных или робасности
-    calcHeaterData(AUTO);
+    // котел - вычисляем всегда (кроме energy_save_flag) на основании расчитанных данных или робасности
+    if (energy_save_flag) calcHeaterData(OFF);
+    else calcHeaterData(AUTO);
+     
 
     // насос ГВС
     if (ds_validity_flag)
@@ -842,7 +852,7 @@ void main_cicle(byte main_cicle_counter)
     break;
 
   case 3: // Передача данных в ARDUINO NANO для управления реле
-
+    Serial.println("send_i2c_data: ");
     if (heaterMode == OFF)
     { // если отопление принудительно отключено
       Tp_valve_state(true);
@@ -871,10 +881,12 @@ void main_cicle(byte main_cicle_counter)
     break;
 
   case 4: // передача данных для построения графиков
+    Serial.println("Send monitoring data ");
     Monitoring();
     break;
 
   case 5: // Публикация на MQTT сервер
+    Serial.println("Send mqtt data");
     if (currentCicleTime - Last_synh_MQTT_time > SYNH_MQTT_PERIOD)
     {
       Last_synh_MQTT_time = currentCicleTime;
