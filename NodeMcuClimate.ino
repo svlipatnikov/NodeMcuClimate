@@ -160,7 +160,13 @@
  * 
  * 26/11/2020
  * i2c, udp, monitoring вынесены в отдельные файлы
+ * 
+ * 02/02/2021
+ * в Calc_tp_data добавлено включение теплого пола в помощь к батареям
+ * delta_tv = 0.3; // гистрезис температуры воздуха изменен с 0.4 на 0.3
  */
+
+#define DEBUG 1
 
 #include <Wire.h>
 
@@ -209,17 +215,9 @@ char Buffer[UDP_TX_PACKET_MAX_SIZE];
 
 #include <NTPClient.h>
 NTPClient timeClient(Udp, "europe.pool.ntp.org"); //смещение на UTC+4
-/*
-#include <string.h>
-const char *host = "open-monitoring.online"; // Адрес сервера
-const char *streamId = "938";                // ID                         (!)
-const char *privateKey = "dXI0fy";           // Код доступа                (!)
-const int SEND_PERIOD = 70 * 1000;           // Периодичность отправки пакетов на сервер >60сек
-unsigned long last_send_time;
-*/
+
 
 const byte count = 6;
-
 struct dht_sensor
 {
   float dataT[count];
@@ -267,7 +265,7 @@ float delta_tp = 1.0; // гистрезис температуры пола
 float need_tv_din = 23.2;
 float need_tv_det = 23.5;
 float need_tv_bed = 23.1;
-float delta_tv = 0.4; // гистрезис температуры воздуха
+float delta_tv = 0.3; // гистрезис температуры воздуха
 
 float need_gvs_temp = 37.0;
 float delta_gvs_temp = 2.0; // гистрезис температуры ГВС
@@ -367,8 +365,10 @@ void setup()
   relay_heater = false;
   emergencyHeater = false;
 
+#if (DEBUG == 1)
   Serial.begin(9600);
   Serial.println("NodeMCU has been started");
+#endif
 }
 
 //==========================================================================================================
@@ -532,6 +532,11 @@ void Calc_tp_data(void)
 
   // ветка теплого пола в ванной, туалете, коридоре
   tp_valve_bath = true; // всегда включена
+
+  // включение теплого пола в помощь к батареям
+  if (bat_valve_kit) { tp_valve_kit = true; tp_valve_din = true; }
+  if (bat_valve_det)   tp_valve_det = true;
+  if (bat_valve_bed)   tp_valve_bed = true;
 }
 
 // насос теплого пола
@@ -733,11 +738,13 @@ float Calc_MID(float data[count])
 // основной цикл
 void main_cicle(byte main_cicle_counter)
 {  
-  Serial.println();
   switch (main_cicle_counter)
   {
   case 0: // Получение по i2c данных из ARDUINO NANO от датчиков DHT22
-    Serial.println("get_i2c_data: ");
+    #if (DEBUG == 1)
+      Serial.println(); Serial.println("get_i2c_data: "); 
+    #endif
+    
     if (get_i2c_data())
     {
       _dht_din = Read_DHT(dht_i2c_data[0], dht_i2c_data[1], _dht_din);
@@ -749,11 +756,15 @@ void main_cicle(byte main_cicle_counter)
     else if (i2c_in_err < 255)
       i2c_in_err++;
     i2c_in_err < 10 ? arduino_validity_flag = true : arduino_validity_flag = false;
-    Serial.print("i2c_in_err = "); Serial.println(i2c_in_err);
+    #if (DEBUG == 1) 
+      Serial.print("i2c_in_err = "); Serial.println(i2c_in_err); 
+    #endif
     break;
 
   case 1: // Чтение с датчиков DS18B20
-    Serial.println("Read DS18B20: ");
+    #if (DEBUG == 1) 
+      Serial.println("Read DS18B20: "); 
+    #endif
     DS.requestTemperatures();
     _ds_kit = Read_DS18B20(ds_kit, _ds_kit, 1);
     _ds_din = Read_DS18B20(ds_din, _ds_din, 1);
@@ -766,7 +777,9 @@ void main_cicle(byte main_cicle_counter)
     break;
 
   case 2: // Вычисления
-    Serial.println("Calculate: ");
+    #if (DEBUG == 1) 
+      Serial.println("Calculate: "); 
+    #endif
     // получение времени от NTP сервера
     timeClient.update();
 
@@ -852,7 +865,9 @@ void main_cicle(byte main_cicle_counter)
     break;
 
   case 3: // Передача данных в ARDUINO NANO для управления реле
-    Serial.println("send_i2c_data: ");
+    #if (DEBUG == 1) 
+      Serial.println("send_i2c_data: "); 
+    #endif
     if (heaterMode == OFF)
     { // если отопление принудительно отключено
       Tp_valve_state(true);
@@ -881,12 +896,16 @@ void main_cicle(byte main_cicle_counter)
     break;
 
   case 4: // передача данных для построения графиков
-    Serial.println("Send monitoring data ");
+    #if (DEBUG == 1) 
+      Serial.println("Send monitoring data "); 
+    #endif
     Monitoring();
     break;
 
   case 5: // Публикация на MQTT сервер
-    Serial.println("Send mqtt data");
+    #if (DEBUG == 1) 
+      Serial.println("Send mqtt data"); 
+    #endif
     if (currentCicleTime - Last_synh_MQTT_time > SYNH_MQTT_PERIOD)
     {
       Last_synh_MQTT_time = currentCicleTime;
