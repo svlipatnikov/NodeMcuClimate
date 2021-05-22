@@ -37,7 +37,7 @@ const char topic_tp_valve_din[]  = "/sv.lipatnikov@gmail.com/climate/tp_valve_di
 const char topic_tp_valve_det[]  = "/sv.lipatnikov@gmail.com/climate/tp_valve_det";
 const char topic_tp_valve_bed[]  = "/sv.lipatnikov@gmail.com/climate/tp_valve_bed";
 const char topic_tp_valve_bath[] = "/sv.lipatnikov@gmail.com/climate/tp_valve_bath";
-const char topic_bat_valve_kit[] = "/sv.lipatnikov@gmail.com/climate/bat_valve_kit";
+const char topic_bat_valve_din[] = "/sv.lipatnikov@gmail.com/climate/bat_valve_din";
 const char topic_bat_valve_det[] = "/sv.lipatnikov@gmail.com/climate/bat_valve_det";
 const char topic_bat_valve_bed[] = "/sv.lipatnikov@gmail.com/climate/bat_valve_bed";
 
@@ -221,7 +221,7 @@ void Send_MQTT_data(void)
   MQTT_publish_int(topic_tp_valve_det, tp_valve_det);
   MQTT_publish_int(topic_tp_valve_bed, tp_valve_bed);
   MQTT_publish_int(topic_tp_valve_bath, tp_valve_bath);
-  MQTT_publish_int(topic_bat_valve_kit, bat_valve_kit);
+  MQTT_publish_int(topic_bat_valve_din, bat_valve_din);
   MQTT_publish_int(topic_bat_valve_det, bat_valve_det);
   MQTT_publish_int(topic_bat_valve_bed, bat_valve_bed);
   MQTT_publish_int(topic_tp_pump, tp_pump);

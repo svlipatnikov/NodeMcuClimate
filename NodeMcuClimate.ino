@@ -252,7 +252,7 @@ ds_sensor _ds_weather;
 // Управляющие сигналы
 bool tp_valve_kit, tp_valve_din, tp_valve_det, tp_valve_bed, tp_valve_bath; // термоклапаны теплого пола
 bool tp_pump, gvs_pump;                                                     // насосы ТП, ГВС
-bool bat_valve_kit, bat_valve_det, bat_valve_bed;                           // термоклапаны батарей
+bool bat_valve_din, bat_valve_det, bat_valve_bed;                           // термоклапаны батарей
 bool relay_heater, relay_boiler;                                            // реле котла и бойлера
 
 // Переменные требуемых (заданных) значений температуры
@@ -314,6 +314,7 @@ byte i2c_in_err = 100;            // счетчик ошибок данных о
 bool arduino_validity_flag = true;// исправность данных от ардуино
 bool morning_heater_flag = false; // признак необходимости подогрева утром
 bool tpValveOpenFlag = false;     // открытия всех клапанов 
+bool room_heater_flag = false;    // признак подогрева ТП по температуре воздуха (в помощь к батареям)
 
 // переменные включения/выключения основных функций
 #define OFF 0
@@ -509,34 +510,47 @@ bool morningHeater (void)
 }
   
 
-// вычисление данных для теплого пола
+// термоклапаны теплого пола
 void Calc_tp_data(void)
 {
   if ((currentCicleTime - last_change_tp_valve > VALVE_CTRL_PERIOD)) {
     last_change_tp_valve = currentCicleTime;
 
-    if (seasonMode == WINTER && (tp_valve_kit || tp_valve_din || tp_valve_det || tp_valve_bed)) { // если ЗИМОЙ хотя бы один термоклапан открыт
-      if (!tpValveOpenFlag) {  // фича срабатывает только один раз пока остальные не закроятся
-        Tp_valve_state(true);  // открываем все остальные (те что не в петле гистерезиса закроются обратно)
-        tpValveOpenFlag = true;
-      }
+    if (seasonMode == WINTER &&                                        // если ЗИМОЙ 
+    (tp_valve_kit || tp_valve_din || tp_valve_det || tp_valve_bed) &&  // если хотя бы один термоклапан ТП открыт
+    !room_heater_flag &&                                               // если клапан ТП открыт не для обогрева воздуха
+    !tpValveOpenFlag)                                                  // фича срабатывает только один раз пока остальные клапаны не закроятся
+    {
+      Tp_valve_state(true);    // открываем все остальные клапаны ТП (те что не в петле гистерезиса закроются обратно)
+      tpValveOpenFlag = true;
     }
     else
       tpValveOpenFlag = false; // сбрасываем флаг только когда все закрыты
     
-    tp_valve_kit = Hysteresis(tp_valve_kit, _ds_kit.mid, need_tp_kit, delta_tp);
-    tp_valve_din = Hysteresis(tp_valve_din, _ds_din.mid, need_tp_din, delta_tp);
-    tp_valve_det = Hysteresis(tp_valve_det, _ds_det.mid, need_tp_det, delta_tp);
-    tp_valve_bed = Hysteresis(tp_valve_bed, _ds_bed.mid, need_tp_bed, delta_tp);    
+    // tp_valve_kit = Hysteresis(tp_valve_kit, _ds_kit.mid, need_tp_kit, delta_tp);
+    // tp_valve_din = Hysteresis(tp_valve_din, _ds_din.mid, need_tp_din, delta_tp);
+    // tp_valve_det = Hysteresis(tp_valve_det, _ds_det.mid, need_tp_det, delta_tp);
+    // tp_valve_bed = Hysteresis(tp_valve_bed, _ds_bed.mid, need_tp_bed, delta_tp);  
+      
+    // включение теплого пола в помощь к батареям
+    if (bat_valve_din || bat_valve_det || bat_valve_bed) {
+      room_heater_flag = true;
+      if (bat_valve_din) { tp_valve_kit = true; tp_valve_din = true; }
+      if (bat_valve_det) tp_valve_det = true;
+      if (bat_valve_bed) tp_valve_bed = true;
+    }
+    else
+      room_heater_flag = false;
   }
+
+  tp_valve_kit = Hysteresis(tp_valve_kit, _ds_kit.mid, need_tp_kit, delta_tp);
+  tp_valve_din = Hysteresis(tp_valve_din, _ds_din.mid, need_tp_din, delta_tp);
+  tp_valve_det = Hysteresis(tp_valve_det, _ds_det.mid, need_tp_det, delta_tp);
+  tp_valve_bed = Hysteresis(tp_valve_bed, _ds_bed.mid, need_tp_bed, delta_tp);  
 
   // ветка теплого пола в ванной, туалете, коридоре
   tp_valve_bath = true; // всегда включена
-
-  // включение теплого пола в помощь к батареям
-  if (bat_valve_kit) { tp_valve_kit = true; tp_valve_din = true; }
-  if (bat_valve_det)   tp_valve_det = true;
-  if (bat_valve_bed)   tp_valve_bed = true;
+  
 }
 
 // насос теплого пола
@@ -576,7 +590,7 @@ void Calc_bat_data(void)
   if ((currentCicleTime - last_change_bat_valve > VALVE_CTRL_PERIOD))  {  
     last_change_bat_valve = currentCicleTime;
     
-    bat_valve_kit = Hysteresis(bat_valve_kit, _dht_din.midT, need_tv_din, delta_tv);
+    bat_valve_din = Hysteresis(bat_valve_din, _dht_din.midT, need_tv_din, delta_tv);
     bat_valve_det = Hysteresis(bat_valve_det, _dht_det.midT, need_tv_det, delta_tv);
     bat_valve_bed = Hysteresis(bat_valve_bed, _dht_bed.midT, need_tv_bed, delta_tv);
   }
@@ -609,12 +623,12 @@ void calcHeaterData(byte heaterMode)
     break;
 
   case AUTO:
-    if (!bat_valve_kit && !bat_valve_det && !bat_valve_bed && !tp_pump)
+    if (!bat_valve_din && !bat_valve_det && !bat_valve_bed && !tp_pump)
     { // если все батареи и теплый пол выключены
       relay_heater = false;
       relay_heater_timer = currentCicleTime;
     }
-    else if (tp_pump && !bat_valve_kit && !bat_valve_det && !bat_valve_bed)
+    else if (tp_pump && !bat_valve_din && !bat_valve_det && !bat_valve_bed)
     { // если включен только теплый пол (задержка не нужна т.к. она есть в tp_pump)
       if (ds_validity_flag)
         relay_heater = Hysteresis(relay_heater, _ds_tpin.mid, TP_IN_MAX, delta_heater); // гистерезис для отключения котла при превышении TP_IN_MAX (трехходовой клапан закрыт, котлу некуда качать)
@@ -656,7 +670,7 @@ void Tp_valve_state(bool state)
 // Функция для быстрого обнуления состояния всех клапанов батарей
 void Bat_valve_state(bool state)
 {
-  bat_valve_kit = state;
+  bat_valve_din = state;
   bat_valve_det = state;
   bat_valve_bed = state;
 }
@@ -852,7 +866,7 @@ void main_cicle(byte main_cicle_counter)
     }
 
     // котел - вычисляем всегда (кроме energy_save_flag) на основании расчитанных данных или робасности
-    if (energy_save_flag) calcHeaterData(OFF);
+    if (energy_save_flag && !morning_heater_flag) calcHeaterData(OFF);
     else calcHeaterData(AUTO);
      
 
@@ -890,7 +904,7 @@ void main_cicle(byte main_cicle_counter)
 
     send_i2c_data(
         tp_valve_kit, tp_valve_din, tp_valve_det, tp_valve_bed, tp_valve_bath,
-        bat_valve_kit, bat_valve_det, bat_valve_bed,
+        bat_valve_din, bat_valve_det, bat_valve_bed,
         relay_heater, relay_boiler,
         tp_pump, gvs_pump);
     break;
