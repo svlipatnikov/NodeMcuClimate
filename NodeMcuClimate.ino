@@ -166,7 +166,7 @@
  * delta_tv = 0.3; // гистрезис температуры воздуха изменен с 0.4 на 0.3
  */
 
-#define DEBUG 1
+#define DEBUG 0
 
 #include <Wire.h>
 
@@ -492,14 +492,14 @@ bool energySave(void)
 // необходимость подогрева теплого пола утром
 bool morningHeater (void)
 {
-  byte heaterMinutes = 15; //время подогрева в минутах
+  float heaterMinutes = 15; //время подогрева в минутах
   if (ds_validity_flag) { 
-    heaterMinutes = (byte)(30 - _ds_weather.mid * 2); // зависимость времени подогрева от температуры на улице
+    heaterMinutes = 30 - _ds_weather.mid * 1.5; // зависимость времени подогрева от температуры на улице
     heaterMinutes = constrain (heaterMinutes, 0 ,59); // ограничиваем 0-59 мин
     if (heaterMinutes) heaterMinutes = constrain (heaterMinutes, 10 ,59);  // если не 0 то нижняя граница 10 мин
   }
   else { // робасность
-    if (seasonMode == SUMMER) heaterMinutes = 15;
+    if (seasonMode == SUMMER) heaterMinutes = 10;
     if (seasonMode == WINTER) heaterMinutes = 40;
   }
 
@@ -526,11 +526,6 @@ void Calc_tp_data(void)
     }
     else
       tpValveOpenFlag = false; // сбрасываем флаг только когда все закрыты
-    
-    // tp_valve_kit = Hysteresis(tp_valve_kit, _ds_kit.mid, need_tp_kit, delta_tp);
-    // tp_valve_din = Hysteresis(tp_valve_din, _ds_din.mid, need_tp_din, delta_tp);
-    // tp_valve_det = Hysteresis(tp_valve_det, _ds_det.mid, need_tp_det, delta_tp);
-    // tp_valve_bed = Hysteresis(tp_valve_bed, _ds_bed.mid, need_tp_bed, delta_tp);  
       
     // включение теплого пола в помощь к батареям
     if (bat_valve_din || bat_valve_det || bat_valve_bed) {
@@ -824,7 +819,11 @@ void main_cicle(byte main_cicle_counter)
       calcTpPump(ON);
     }
     else if (morning_heater_flag) {
-      Tp_valve_state(true);
+      if (seasonMode == SUMMER) { 
+        Tp_valve_state(false);
+        tp_valve_bath = true; 
+      }
+      if (seasonMode == WINTER) Tp_valve_state(true);
       calcTpPump(ON);
     }
     else if (bath_high_humidity_flag) {  // если большая влажность в ванной     
